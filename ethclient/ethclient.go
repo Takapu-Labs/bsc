@@ -591,6 +591,20 @@ func (ec *Client) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuer
 	return sub, nil
 }
 
+// SubscribeBlockLogs subscribes to matching logs delivered in per-block batches.
+// Each notification is an array of all matched logs from a single block.
+func (ec *Client) SubscribeBlockLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- []*types.Log) (ethereum.Subscription, error) {
+	arg, err := toFilterArg(q)
+	if err != nil {
+		return nil, err
+	}
+	sub, err := ec.c.EthSubscribe(ctx, ch, "blockLogs", arg)
+	if err != nil {
+		return nil, err
+	}
+	return sub, nil
+}
+
 func toFilterArg(q ethereum.FilterQuery) (interface{}, error) {
 	arg := map[string]interface{}{
 		"address": q.Addresses,

@@ -532,6 +532,27 @@ func filterLogs(logs []*types.Log, fromBlock, toBlock *big.Int, addresses []comm
 	return ret
 }
 
+// groupLogsByBlock groups logs by block hash, preserving the order in which
+// each block first appears in the input. Logs that share a block hash stay
+// together in their original relative order.
+func groupLogsByBlock(logs []*types.Log) [][]*types.Log {
+	if len(logs) == 0 {
+		return nil
+	}
+	index := make(map[common.Hash]int, 1)
+	var groups [][]*types.Log
+	for _, log := range logs {
+		i, ok := index[log.BlockHash]
+		if !ok {
+			i = len(groups)
+			index[log.BlockHash] = i
+			groups = append(groups, nil)
+		}
+		groups[i] = append(groups[i], log)
+	}
+	return groups
+}
+
 func bloomFilter(bloom types.Bloom, addresses []common.Address, topics [][]common.Hash) bool {
 	if len(addresses) > 0 {
 		var included bool

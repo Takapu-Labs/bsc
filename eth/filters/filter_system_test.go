@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
@@ -1002,4 +1003,81 @@ func TestVoteSubscription(t *testing.T) {
 	}
 
 	<-sub0.Err()
+}
+
+func TestGroupLogsByBlock(t *testing.T) {
+	t.Parallel()
+
+	var (
+		hash1 = common.HexToHash("0x01")
+		hash2 = common.HexToHash("0x02")
+		logA  = &types.Log{Address: common.HexToAddress("0x1"), BlockHash: hash1, Index: 0}
+		logB  = &types.Log{Address: common.HexToAddress("0x2"), BlockHash: hash2, Index: 0}
+		logC  = &types.Log{Address: common.HexToAddress("0x3"), BlockHash: hash1, Index: 1}
+	)
+
+	if groups := groupLogsByBlock(nil); groups != nil {
+		t.Fatalf("expected nil groups for empty input, got %d", len(groups))
+	}
+
+	groups := groupLogsByBlock([]*types.Log{logA, logB, logC})
+	if len(groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(groups))
+	}
+	if len(groups[0]) != 2 || groups[0][0] != logA || groups[0][1] != logC {
+		t.Fatalf("first group should keep block 1 logs in original order, got %v", groups[0])
+	}
+	if len(groups[1]) != 1 || groups[1][0] != logB {
+		t.Fatalf("second group should be block 2 log, got %v", groups[1])
+	}
+}
+
+func TestBlockLogsSubscription(t *testing.T) {
+	t.Parallel()
+
+	var (
+		db           = rawdb.NewMemoryDatabase()
+		backend, sys = newTestFilterSystem(db, Config{})
+		api          = NewFilterAPI(sys, false)
+		addrMatch    = common.HexToAddress("0x1111111111111111111111111111111111111111")
+		addrOther    = common.HexToAddress("0x2222222222222222222222222222222222222222")
+		hash1        = common.HexToHash("0x01")
+		hash2        = common.HexToHash("0x02")
+	)
+
+	allLogs := []*types.Log{
+		{Address: addrMatch, BlockNumber: 1, BlockHash: hash1, Index: 0},
+		{Address: addrOther, BlockNumber: 1, BlockHash: hash1, Index: 1},
+		{Address: addrMatch, BlockNumber: 2, BlockHash: hash2, Index: 0},
+		{Address: addrMatch, BlockNumber: 1, BlockHash: hash1, Index: 2},
+	}
+
+	matchedLogs := make(chan []*types.Log, 1)
+	sub, err := api.events.SubscribeLogs(ethereum.FilterQuery{Addresses: []common.Address{addrMatch}}, matchedLogs)
+	if err != nil {
+		t.Fatalf("subscribe logs: %v", err)
+	}
+	defer sub.Unsubscribe()
+
+	if nsend := backend.logsFeed.Send(allLogs); nsend == 0 {
+		t.Fatal("logs event not delivered")
+	}
+
+	var received []*types.Log
+	select {
+	case received = <-matchedLogs:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for matched logs")
+	}
+
+	batches := groupLogsByBlock(received)
+	if len(batches) != 2 {
+		t.Fatalf("expected 2 block batches, got %d", len(batches))
+	}
+	if len(batches[0]) != 2 || batches[0][0].BlockHash != hash1 || batches[0][0].Index != 0 || batches[0][1].Index != 2 {
+		t.Fatalf("first batch should contain matching logs from block 1 in order, got %v", batches[0])
+	}
+	if len(batches[1]) != 1 || batches[1][0].BlockHash != hash2 || batches[1][0].Index != 0 {
+		t.Fatalf("second batch should contain the matching log from block 2, got %v", batches[1])
+	}
 }

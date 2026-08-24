@@ -430,6 +430,42 @@ func (api *FilterAPI) Logs(ctx context.Context, crit FilterCriteria) (*rpc.Subsc
 	return rpcSub, nil
 }
 
+// BlockLogs creates a subscription that fires matching logs in per-block batches.
+// Unlike Logs, which delivers one log per notification, each notification is an
+// array of all matched logs from a single block.
+func (api *FilterAPI) BlockLogs(ctx context.Context, crit FilterCriteria) (*rpc.Subscription, error) {
+	notifier, supported := rpc.NotifierFromContext(ctx)
+	if !supported {
+		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
+	}
+
+	var (
+		rpcSub      = notifier.CreateSubscription()
+		matchedLogs = make(chan []*types.Log)
+	)
+
+	logsSub, err := api.events.SubscribeLogs(ethereum.FilterQuery(crit), matchedLogs)
+	if err != nil {
+		return nil, err
+	}
+
+	gopool.Submit(func() {
+		defer logsSub.Unsubscribe()
+		for {
+			select {
+			case logs := <-matchedLogs:
+				for _, batch := range groupLogsByBlock(logs) {
+					notifier.Notify(rpcSub.ID, batch)
+				}
+			case <-rpcSub.Err(): // client send an unsubscribe request
+				return
+			}
+		}
+	})
+
+	return rpcSub, nil
+}
+
 // TransactionReceiptsFilter defines criteria for transaction receipts subscription.
 // If TransactionHashes is nil or empty, receipts for all transactions included in new blocks will be delivered.
 // Otherwise, only receipts for the specified transactions will be delivered.
