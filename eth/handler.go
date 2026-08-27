@@ -1086,8 +1086,7 @@ func (h *handler) txBroadcastLoop() {
 	for {
 		select {
 		case event := <-h.txsCh:
-			_ = event // consume the event but don't broadcast
-			// h.BroadcastTransactions(event.Txs)
+			h.BroadcastTransactions(event.Txs)
 		case <-h.txsSub.Err():
 			return
 		case <-h.stopCh:
@@ -1119,8 +1118,7 @@ func (h *handler) voteBroadcastLoop() {
 		case event := <-h.voteCh:
 			// The timeliness of votes is very important,
 			// so one vote will be sent instantly without waiting for other votes for batch sending by design.
-			_ = event // consume the event but don't broadcast
-			// h.BroadcastVote(event.Vote)
+			h.BroadcastVote(event.Vote)
 		case <-h.votesSub.Err():
 			return
 		}
@@ -1185,9 +1183,9 @@ func (h *handler) blockRangeLoop(st *blockRangeState) {
 			}
 		case <-st.headCh:
 			st.update(h.chain, h.chain.CurrentBlock())
-			//if st.shouldSend() {
-			//	h.broadcastBlockRange(st)
-			//}
+			if st.shouldSend() {
+				h.broadcastBlockRange(st)
+			}
 		case <-st.headSub.Err():
 			return
 		}
@@ -1204,9 +1202,9 @@ func (h *handler) blockRangeWhileSnapSyncing(st *blockRangeState) {
 		select {
 		case <-tick.C:
 			st.update(h.chain, h.chain.CurrentSnapBlock())
-			//if st.shouldSend() {
-			//	h.broadcastBlockRange(st)
-			//}
+			if st.shouldSend() {
+				h.broadcastBlockRange(st)
+			}
 		// back to processing head block updates when sync is done
 		case ev := <-st.syncSub.Chan():
 			if ev == nil {
