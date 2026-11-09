@@ -10,6 +10,10 @@ env:
   CGO_CFLAGS: "-O -D__BLST_PORTABLE__"
   CGO_CFLAGS_ALLOW: "-O -D__BLST_PORTABLE__"
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   build:
     name: Build Release
@@ -118,6 +122,9 @@ jobs:
     name: Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
     steps:
       - name: Set Env
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
